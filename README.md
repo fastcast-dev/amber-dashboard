@@ -94,7 +94,18 @@ never run on the in-cluster runners.
    ```
    (Fallback: org secrets `KUBECONFIG_DEV` / `KUBECONFIG_PROD`, if they're visible to this repo.)
 4. **digestabot.** Repo variable `CHAINGUARD_IDENTITY`: a Chainguard assumable identity bound to this
-   repo (the chainguard-demos one is bound to that repo).
+   repo's `main` (the chainguard-demos one is bound to that repo):
+   ```sh
+   chainctl auth login
+   chainctl iam identities create github amber-dashboard-digestabot \
+     --github-repo=fastcast-dev/amber-dashboard --github-ref=refs/heads/main \
+     --parent=max.bern --role=registry.pull
+   gh variable set CHAINGUARD_IDENTITY --repo fastcast-dev/amber-dashboard --body '<id printed above>'
+   ```
+   The repo's Actions allowlist also names the three non-Chainguard actions digestabot runs internally
+   (`actions/github-script`, `actions/upload-artifact`, `sigstore/cosign-installer`) by commit SHA.
+   When the digestabot pin in `digestabot.yml` changes, update those from its `action.yml`.
+   "Allow GitHub Actions to create and approve pull requests" is on so it can open its PR. *(done)*
 5. **k3s-deploys** (admin, not CI):
    - edge routers + Cloudflare DNS in `ansible/inventory/traefik.yml` for
      `amber-dashboard-dev.self-hosted.io` → `k3s-dev-svc` and `amber-dashboard.self-hosted.io` →
