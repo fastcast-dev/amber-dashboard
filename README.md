@@ -81,14 +81,18 @@ never run on the in-cluster runners.
 
 ### One-time setup
 
-1. **Repo location.** The ARC runners are registered to the `fastcast-dev` org, so the repo has to
-   live there (e.g. `fastcast-dev/amber-dashboard`) to use them.
-2. **Environments** `dev` and `prod`. On both, restrict deployment branches to `main`; on `prod`, add
-   required reviewers.
-3. **Cluster credentials.** Recommended: an environment secret `KUBECONFIG` on each environment
-   (base64 kubeconfig for `github-deployer`, built as in k3s-deploys' `docs/github-deploy-credentials.md`),
-   so the prod token is only released after approval. Otherwise the existing org secrets
-   `KUBECONFIG_DEV` / `KUBECONFIG_PROD` are used, if they're visible to this repo.
+1. **Repo location.** The ARC runners are registered to the `fastcast-dev` org, so the repo lives at
+   `fastcast-dev/amber-dashboard`. *(done)* Actions there are limited to `chainguard-actions/*` and
+   `chainguard-dev/*`, must be SHA-pinned, and outside contributors' runs need approval.
+2. **Environments** `dev` and `prod`, both deploying from `main` only; `prod` needs a reviewer's
+   approval. *(done)*
+3. **Cluster credentials**: an environment secret `KUBECONFIG` on each environment, so the prod token
+   is only released after approval:
+   ```sh
+   deploy/set-github-kubeconfig.sh dev k3s-dev
+   deploy/set-github-kubeconfig.sh prod k3s-prod
+   ```
+   (Fallback: org secrets `KUBECONFIG_DEV` / `KUBECONFIG_PROD`, if they're visible to this repo.)
 4. **digestabot.** Repo variable `CHAINGUARD_IDENTITY`: a Chainguard assumable identity bound to this
    repo (the chainguard-demos one is bound to that repo).
 5. **k3s-deploys** (admin, not CI):
