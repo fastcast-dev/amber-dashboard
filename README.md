@@ -69,13 +69,13 @@ Until the Secret exists the dashboard deploys fine and shows "no API key set up 
 
 | Workflow | Runs on | What it does |
 |---|---|---|
-| `deploy.yml` → `deploy-env.yml` | push to `main` (deployed paths) | dev on `deployments-dev`, then prod on `deployments-prod` behind the `prod` environment's approval |
+| `deploy.yml` (+ `.github/actions/k8s-deploy`) | push to `main` (deployed paths) | dev on `deployments-dev`, then prod on `deployments-prod` behind the `prod` environment's approval |
 | `validate.yml` | PRs (same-repo only) and `main` | manifests render, every image is digest-pinned, no Amber key committed |
 | `digestabot.yml` | hourly | PR to bump the nginx digest; merging it deploys it |
 
 Hardening: `permissions: {}` at the top level with jobs opting into `contents: read`; every action is
 a Chainguard hardened mirror pinned to a full commit SHA; `persist-credentials: false`; only `main`
-deploys; each environment gets only its own kubeconfig (no `secrets: inherit`); the kubeconfig is
+deploys; each job declares its environment and gets only that environment's kubeconfig; the kubeconfig is
 written to `RUNNER_TEMP` (mode 600) and deleted at the end; no `${{ }}` inside `run:` scripts; fork PRs
 never run on the in-cluster runners.
 
@@ -92,9 +92,20 @@ never run on the in-cluster runners.
    deploy/set-github-kubeconfig.sh dev k3s-dev
    deploy/set-github-kubeconfig.sh prod k3s-prod
    ```
-   (Fallback: org secrets `KUBECONFIG_DEV` / `KUBECONFIG_PROD`, if they're visible to this repo.)
+   *(done)*
 4. **digestabot.** Repo variable `CHAINGUARD_IDENTITY`: a Chainguard assumable identity bound to this
-   repo (the chainguard-demos one is bound to that repo).
+   repo's `main` (the chainguard-demos one is bound to that repo):
+   ```sh
+   chainctl auth login
+   chainctl iam identities create github amber-dashboard-digestabot \
+     --github-repo=fastcast-dev/amber-dashboard --github-ref=refs/heads/main \
+     --parent=max.bern --role=registry.pull
+   gh variable set CHAINGUARD_IDENTITY --repo fastcast-dev/amber-dashboard --body '<id printed above>'
+   ```
+   The repo's Actions allowlist also names the three non-Chainguard actions digestabot runs internally
+   (`actions/github-script`, `actions/upload-artifact`, `sigstore/cosign-installer`) by commit SHA.
+   When the digestabot pin in `digestabot.yml` changes, update those from its `action.yml`.
+   "Allow GitHub Actions to create and approve pull requests" is on so it can open its PR. *(done)*
 5. **k3s-deploys** (admin, not CI):
    - edge routers + Cloudflare DNS in `ansible/inventory/traefik.yml` for
      `amber-dashboard-dev.self-hosted.io` → `k3s-dev-svc` and `amber-dashboard.self-hosted.io` →
