@@ -1,0 +1,853 @@
+<!-- Copyright (c) 2022 Graham Lea. All rights reserved. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+    <meta name="theme-color" content="#000000"/>
+    <meta name="mobile-web-app-capable" content="yes"/>
+    <link rel="manifest" href="manifest.webmanifest"/>
+    <link rel="icon" href="icon.svg" type="image/svg+xml"/>
+    <link rel="apple-touch-icon" href="apple-touch-icon.png"/>
+    <title>Amber Electric Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            border: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+            Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+            background: #000000;
+            color: #eeeeee;
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+
+        svg.icon {
+            width: 1em;
+            height: 1em;
+            vertical-align: -0.125em;
+            fill: currentColor;
+        }
+
+        .configButton, #closeButton, #fullscreenButton {
+            position: absolute;
+            z-index: 1;
+            right: 0;
+            margin: 20px;
+
+            width: 60px;
+            height: 60px;
+            font-size: 35px;
+            line-height: 100%;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            vertical-align: center;
+
+            background: rgba(0, 0, 0, 0);
+            opacity: 30%;
+        }
+
+        .configButton:hover, #closeButton:hover, #fullscreenButton:hover {
+            opacity: 40%;
+        }
+
+        .configButton:active, #closeButton:active, #fullscreenButton:active {
+            opacity: 50%;
+        }
+
+        /* Sit in the empty middle of the "Now ... Next" row, clear of the prices and chart */
+        .configButton, #fullscreenButton {
+            top: 18vh;
+            right: 50%;
+            margin: 0;
+            width: min(6vh, 60px);
+            height: min(6vh, 60px);
+            padding: 0;
+            font-size: min(3.5vh, 35px);
+            color: #fff;
+            border: 2px solid #fff;
+        }
+
+        .configButton {
+            transform: translateX(calc(100% + 1vw));
+        }
+
+        #fullscreenButton {
+            transform: translateX(-1vw);
+        }
+
+        #closeButton {
+            top: 0;
+            color: #000;
+            border: 2px solid #000;
+        }
+
+
+        main {
+            width: 100vw;
+        }
+
+        h1 {
+            font-size: min(6vw, 6vh);
+        }
+
+        main#config {
+            color: #333333;
+            background-color: #eeeeee;
+            text-align: center;
+            padding: 2vh;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+
+        #configData table {
+            margin-top: 3vh;
+            position: relative;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: min(4vw, 3vh);
+            border-spacing: 3vw 3vh;
+        }
+
+        #configData table label {
+            margin-right: 1vw;
+        }
+
+        #configData table th,
+        #configData table td {
+            text-align: left;
+            vertical-align: baseline;
+        }
+
+        #configData label,
+        #configData input,
+        #configData select {
+            font-size: min(4vw, 3vh);
+            color: #333333;
+            padding: 0.5vw;
+        }
+
+        #configData .help {
+            display: block;
+            font-size: 75%;
+            font-weight: normal;
+            color: #666666;
+            max-width: 35vw;
+        }
+
+        .error {
+            color: #ad0a0a;
+            font-size: 60%;
+        }
+
+        #configData input[type=checkbox] {
+            transform: scale(200%);
+        }
+
+        #configData input,
+        #configData select {
+            width: 50vw;
+        }
+
+        .configDataButtons {
+            margin-top: 2vh;
+        }
+
+        #configData button {
+            background-color: rgba(200, 200, 200, 0.8);
+            font-size: min(4vw, 3vh);
+            padding: 2vh;
+            border-radius: 1vh;
+        }
+
+        main#loading {
+            height: 100vh;
+            font-size: min(5vw, 5vh);
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-content: center;
+            color: #777777;
+        }
+
+        main#loading .error {
+            color: #ff6b6b;
+            font-size: 50%;
+            margin-top: 2vh;
+        }
+
+        main#dashboard {
+            position: relative;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            gap: 1vh;
+            overflow: hidden;
+        }
+
+        #staleWarning {
+            position: absolute;
+            z-index: 5;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 1vh;
+            text-align: center;
+            font-size: min(3vh, 4vw);
+            font-weight: 600;
+            color: #000;
+            background: #cccccc;
+        }
+
+        /* The big "what should I do right now" banner */
+        #advice {
+            flex: 0 0 auto;
+            height: 17vh;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 2vw;
+            padding: 1.5vh 2vw;
+            box-sizing: border-box;
+            background: #141414;
+            border-bottom: 0.6vh solid #444;
+        }
+
+        #advice.green, #advice.superCheap { border-color: #12a33a; }
+        #advice.amber { border-color: #f0a500; }
+        #advice.red, #advice.spike { border-color: #d41414; }
+
+        #adviceLight {
+            flex: 0 0 auto;
+            height: 100%;
+            min-width: 22vw;
+            padding: 0 1.5vw;
+            box-sizing: border-box;
+            border-radius: 2vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: min(8vh, 5.2vw);
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            color: #fff;
+            text-shadow: 0 0 0.3em rgba(0, 0, 0, 0.6);
+        }
+
+        #adviceText {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        #adviceHeadline {
+            font-size: min(5.5vh, 4.2vw);
+            font-weight: 800;
+            line-height: 1.1;
+            text-transform: uppercase;
+        }
+
+        #advice.green #adviceHeadline, #advice.superCheap #adviceHeadline { color: #3ddc5f; }
+        #advice.amber #adviceHeadline { color: #ffbf2e; }
+        #advice.red #adviceHeadline, #advice.spike #adviceHeadline { color: #ff4a4a; }
+
+        #adviceDetail {
+            margin-top: 0.6vh;
+            font-size: min(2.8vh, 2.2vw);
+            line-height: 1.25;
+            max-height: 2.5em; /* never more than two lines */
+            overflow: hidden;
+            color: #dddddd;
+        }
+
+        #adviceTiming {
+            flex: 0 0 auto;
+            text-align: right;
+            line-height: 1.15;
+        }
+
+        #adviceTiming .timingLabel,
+        #adviceTiming .timingSub {
+            font-size: min(2.4vh, 2vw);
+            color: #aaaaaa;
+        }
+
+        #adviceTiming .timingValue {
+            font-size: min(5vh, 4vw);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        #legend {
+            flex: 0 0 auto;
+            display: flex;
+            flex-direction: row;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            padding: 0 1vw 1vh;
+            font-size: min(2.4vh, 2.4vw);
+            color: #bbbbbb;
+        }
+
+        #legend .swatch {
+            display: inline-block;
+            width: 1em;
+            height: 1em;
+            border-radius: 0.2em;
+            vertical-align: -0.15em;
+            margin-right: 0.3em;
+        }
+
+        #legend b {
+            color: #eeeeee;
+        }
+
+        #currentAndNext {
+            width: 100vw;
+            height: 32vh;
+            flex: 0 0 auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #currentAndNextHeader {
+            font-size: min(4.5vh, 6vw);
+            width: 100vw;
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+        }
+
+        #currentAndNextHeader div {
+            padding: 0.15em;
+        }
+
+        #currentAndNextPrices {
+            position: relative;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: row;
+            gap: min(1vh, 1vw);
+        }
+
+        #current, #next {
+            transition: width 1s linear, background-color 1.5s ease;
+        }
+
+        #next {
+            flex-grow: 1;
+        }
+
+        #currentAndNext .textContainer {
+            position: absolute;
+            z-index: 1;
+            bottom: 1.5vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            gap: 0;
+        }
+
+        #currentAndNext #currentText.textContainer {
+            z-index: 2;
+        }
+
+        #currentText {
+            font-size: min(21vh, 25vw);
+            left: 1.5vh;
+        }
+
+        #nextText {
+            font-size: min(15vh, 18vw);
+            text-align: right;
+            right: 1.5vh;
+        }
+
+        #currentAndNext .label,
+        #currentAndNext .description {
+            filter: drop-shadow(0 0 1vh #000000);
+            line-height: 1;
+        }
+
+        #currentAndNext .description {
+            font-size: 15%;
+            padding: 0 0.1em;
+        }
+
+        .unit {
+            font-size: 50%;
+        }
+
+        .unit.dollars {
+            position: relative;
+            bottom: .5em;
+        }
+
+        #currentDescription {
+            line-height: 1;
+            padding: 0;
+            margin: 0;
+        }
+
+        #nextDescription {
+            text-align: right;
+        }
+
+        main#dashboard > section#future {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: flex-end;
+            flex-grow: 1;
+            gap: 0.25vw;
+            padding-top: 1em;
+        }
+
+        #future .intervalStack {
+            position: relative;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        #future.hasNegatives .intervalStack {
+            gap: 3vh;
+        }
+
+        #future .intervalStack.shortInterval {
+            flex: 0.5;
+        }
+
+        #future .barContainer {
+            flex-grow: 1;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+        }
+
+        #future .barContainer.negative {
+            justify-content: flex-start;
+        }
+
+        #future .bar {
+            position: relative;
+            bottom: 0;
+            transition: height 1s ease, background-color 1s ease, top 1s ease, bottom 1s ease;
+        }
+
+        #future .bar .icon {
+            position: relative; /* to facilitate centering the icon */
+            margin-top: 1vh;
+            font-size: 1.5vw;
+            color: #ffffff;
+        }
+
+        #future .bar .icon svg {
+            position: absolute;
+            font-size: 70%;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        #future .shortInterval .bar .icon svg {
+            font-size: 35%;
+        }
+
+        #future .price {
+            position: absolute;
+            z-index: 1;
+            top: -1.3em;
+            left: 0;
+            font-size: max(2.6vh, 13px);
+            font-weight: 600;
+            white-space: nowrap;
+            text-shadow: 0 0 0.3em #000;
+        }
+
+        #future .bar.negative .price {
+            top: auto;
+            bottom: -1.2em;
+        }
+
+        #future .timeContainer {
+            width: 100%;
+            height: 4.5em;
+            font-size: max(2.1vh, 11px);
+            position: relative;
+            left: 50%;
+            transform: translateX(-0.5em);
+        }
+
+        #future .time {
+            flex-grow: 0;
+            color: #ffffff;
+            padding: 0.3em 0;
+            font-weight: 500;
+            letter-spacing: .1em;
+            white-space: nowrap;
+            width: 0;
+            overflow: visible;
+            text-align: right;
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+        }
+
+        #future .time .timePart.hour {
+            font-size: 140%;
+        }
+
+        .bar.negative {
+            background: #81ffcb !important;
+        }
+
+        /*
+         * Traffic-light ratings (see rating() in the script):
+         *   green      = cheap, use power freely
+         *   superCheap = green, but almost free / negative (extremely low)
+         *   amber      = average, go easy on big loads
+         *   red        = expensive, avoid big loads
+         *   spike      = very expensive, switch off what you can
+         */
+        .superCheap {
+            background: #3ddc5f repeating-radial-gradient(
+                    circle at 50% 110%,
+                    rgba(0, 0, 0, 0),
+                    rgba(0, 0, 0, 0.2) 15%
+            );
+        }
+
+        .superCheap.highlight {
+            filter: brightness(1.1);
+        }
+
+        .green {
+            background: #12a33a;
+        }
+
+        .amber {
+            background: #f0a500;
+        }
+
+        .red {
+            background: #c81414;
+        }
+
+        .spike {
+            background: #ef131a repeating-linear-gradient(
+                    45deg,
+                    rgba(0, 0, 0, 0),
+                    rgba(0, 0, 0, 0) 10px,
+                    rgba(0, 0, 0, 0.4) 10px,
+                    rgba(0, 0, 0, 0.4) 20px
+            );
+        }
+
+        .spike.highlight {
+            filter: brightness(1.25);
+        }
+
+        .unknown {
+            background: grey;
+        }
+
+        .slide-move {
+            transition: transform 1s ease;
+        }
+
+        .slide-enter-active {
+            position: relative !important;
+            transition: opacity 1s ease, transform 1s ease;
+        }
+
+        .slide-leave-active {
+            position: absolute !important;
+            transition: opacity 1s ease, transform 1s ease;
+        }
+
+        .slide-enter {
+            opacity: 0;
+            transform: translateX(120%);
+        }
+
+        .slide-enter-to {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .slide-leave-to {
+            opacity: 0;
+            transform: translateX(-120%);
+        }
+
+        @keyframes flash {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+<noscript>
+    <strong>This dashboard uses JavaScript. Please enable it to continue.</strong>
+</noscript>
+
+<!-- Inline icons, so nothing depends on an icon CDN being reachable from the tablet -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none">
+    <symbol id="icon-gear" viewBox="0 0 24 24">
+        <g fill="none" stroke="currentColor" stroke-linecap="round">
+            <circle cx="12" cy="12" r="6.5" stroke-width="2.5"/>
+            <circle cx="12" cy="12" r="2.5" stroke-width="2"/>
+            <path stroke-width="3.2" d="M12 1.8v3M12 19.2v3M1.8 12h3M19.2 12h3M4.8 4.8l2.1 2.1M17.1 17.1l2.1 2.1M4.8 19.2l2.1-2.1M17.1 6.9l2.1-2.1"/>
+        </g>
+    </symbol>
+    <symbol id="icon-close" viewBox="0 0 24 24">
+        <path fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" d="M5 5l14 14M19 5L5 19"/>
+    </symbol>
+    <symbol id="icon-fullscreen" viewBox="0 0 24 24">
+        <path fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+              d="M3 9V3h6M15 3h6v6M21 15v6h-6M9 21H3v-6"/>
+    </symbol>
+    <symbol id="icon-warning" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M12 1.5L23.5 21.5H0.5z"/>
+        <path fill="none" stroke="#000" stroke-width="2.6" stroke-linecap="round" d="M12 8.5v6.5M12 18.3v0.1"/>
+    </symbol>
+</svg>
+
+<template id="app"></template>
+
+<script type="text/x-template" id="price-template">
+    <div class="price">
+        <!-- Formatted like this to prevent extra HTML spaces -->
+        <span v-if="interval.priceCents < 0">-</span><span
+            v-if="Math.abs(interval.priceCents) >= 100" class="unit dollars">$</span
+    >{{ formattedPrice(interval.priceCents) }}<span
+            v-if="Math.abs(interval.priceCents) < 100" class="unit cents">c</span>
+    </div>
+</script>
+
+<script type="text/x-template" id="time-template">
+    <span>
+        <span class="timePart" :class="{hour: isHour}">{{ formattedTime.timeStr }}</span>
+        <span class="ampmPart" v-if="isHour || full">{{ formattedTime.ampm }}</span>
+    </span>
+</script>
+
+<script type="text/x-template" id="dashboard-template">
+    <div id="topLevelContainer" style="position: relative;">
+        <button v-if="!configMode" class="configButton" @click="configMode = true" title="Settings">
+            <svg class="icon"><use href="#icon-gear"></use></svg>
+        </button>
+        <button v-else id="closeButton" @click="configMode = false" title="Close settings">
+            <svg class="icon"><use href="#icon-close"></use></svg>
+        </button>
+        <button v-if="!configMode && fullscreenSupported && !isFullscreen" id="fullscreenButton"
+                @click.stop="enterFullscreen" title="Full screen">
+            <svg class="icon"><use href="#icon-fullscreen"></use></svg>
+        </button>
+        <main id="config" v-if="configMode">
+            <div id="configData">
+                <h1>Amber Electric Dashboard</h1>
+                <table>
+                    <tr v-if="intervalsRequestError">
+                        <th>Status</th>
+                        <td class="error">Can't load prices: {{ intervalsRequestError }}</td>
+                    </tr>
+
+                    <tr>
+                        <th><label for="hoursForecastToShow">Max. Forecast Hours</label></th>
+                        <td>
+                            <input id="hoursForecastToShow" type="number" min="1" max="48"
+                                   v-model.number="hoursForecastToShow">
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th>
+                            <label for="greenMaxCents">Always green at or below (c)</label>
+                            <span class="help">
+                                Optional. Leave blank to use Amber's own rating of the price.
+                            </span>
+                        </th>
+                        <td>
+                            <input id="greenMaxCents" type="number" min="-1000" max="2000" placeholder="Use Amber's rating"
+                                   v-model.number="greenMaxCents">
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th>
+                            <label for="redMinCents">Always red at or above (c)</label>
+                            <span class="help">
+                                Optional. Leave blank to use Amber's own rating of the price.
+                            </span>
+                        </th>
+                        <td>
+                            <input id="redMinCents" type="number" min="-1000" max="2000" placeholder="Use Amber's rating"
+                                   v-model.number="redMinCents">
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th>
+                            <label for="highPriceLimit">Spike Threshold (c)</label>
+                            <span class="help">
+                                Prices above this are shown as a spike (flashing, "switch off").
+                            </span>
+                        </th>
+                        <td>
+                            <input id="highPriceLimit" type="number" min="0" max="2000"
+                                   v-model.number="highPriceLimit">
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th>
+                            <label for="playAlerts">Play Alerts</label>
+                            <span class="help">
+                                During a spike, beep every 5 minutes.
+                                (The tablet needs one tap after loading before it's allowed to make sound.)
+                            </span>
+                        </th>
+                        <td style="">
+                            <input id="playAlerts" type="checkbox" v-model="playAlerts" style="width: auto; margin-left: 5px;">
+                        </td>
+                    </tr>
+
+                    <tr v-if="!intervals && !intervalsRequestError">
+                        <th></th>
+                        <td>Loading...</td>
+                    </tr>
+                    <tr v-if="intervals">
+                        <th></th>
+                        <td style="color: #01cb01">Dashboard is ready!</td>
+                    </tr>
+                </table>
+
+            </div>
+        </main>
+        <main id="loading" v-else-if="!intervals">
+            <div>Loading Amber forecasts...</div>
+            <div class="error" v-if="intervalsRequestError">
+                Can't load prices: {{ intervalsRequestError }}<br>
+                Retrying every minute.
+            </div>
+        </main>
+        <main id="dashboard" v-else @click="onDashboardTap">
+            <div id="staleWarning" v-if="dataIsStale">
+                Can't reach Amber. Prices below were last updated at
+                <time-display :time="lastLoadedAt" :full="true"></time-display> and may be wrong.
+            </div>
+
+            <section id="advice" :class="currentRating">
+                <div id="adviceLight" :class="currentRating">{{ ratingWord }}</div>
+                <div id="adviceText">
+                    <div id="adviceHeadline">{{ advice.headline }}</div>
+                    <div id="adviceDetail">{{ advice.detail }}</div>
+                </div>
+                <div id="adviceTiming" v-if="timing">
+                    <div class="timingLabel">{{ timing.label }}</div>
+                    <div class="timingValue">
+                        <time-display v-if="timing.time" :time="timing.time" :full="true"></time-display>
+                        <template v-else>{{ timing.text }}</template>
+                    </div>
+                    <div class="timingSub" v-if="timing.sub">{{ timing.sub }}</div>
+                </div>
+            </section>
+
+            <section id="currentAndNext">
+
+                <div id="currentAndNextHeader">
+                    <div id="currentHeader">Now</div>
+                    <div id="nextHeader">Next</div>
+                </div>
+
+                <div id="currentAndNextPrices">
+                    <div id="current" :class="ratingClasses(currentGeneralInterval)"
+                         :style="{width: currentIntervalRemainingPercentage + '%'}">
+                    </div>
+                    <div id="currentText" class="textContainer">
+                        <price id="currentLabel" class="label"
+                               :interval="currentGeneralInterval"
+                               :trimHighPrices="trimHighCurrentAndNextPrices"></price>
+                        <div id="currentDescription" class="description">
+                            for the next
+                            <template v-if="currentIntervalRemainingMinutesForDisplay == 1">minute</template>
+                            <template v-else>{{ currentIntervalRemainingMinutesForDisplay }} minutes</template>
+                            <sup v-if="this.shouldFakeNextInterval" style="animation: flash 2s infinite;">*</sup>
+                        </div>
+                    </div>
+
+                    <div id="next" :class="ratingClasses(nextGeneralInterval)">
+                    </div>
+                    <div id="nextText" class="textContainer">
+                        <price id="nextLabel" class="label"
+                               :interval="nextGeneralInterval"
+                               :trimHighPrices="trimHighCurrentAndNextPrices"></price>
+                        <div id="nextDescription" class="description">
+                            from
+                            <time-display v-if="nextGeneralInterval" :time="nextGeneralInterval.startDateTimeLocal"
+                                          :full="true"></time-display>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+
+            <transition-group tag="section" id="future" name="slide" style="position: relative"
+                              :class="{hasNegatives: anyFutureNegativePrices}">
+                <div v-for="(interval, i) in futureIntervals"
+                     class="intervalStack"
+                     :class="{shortInterval: interval.duration !== 30}"
+                     :key="interval.nemTime">
+                    <div class="barContainer" :class="{ negative: interval.priceCents < 0 }">
+                        <div class="bar"
+                             :class="[ratingClasses(interval),{ negative: interval.priceCents < 0 }]"
+                             :style="{height: `${heightPercentForBar(interval) * 100}%`,
+                                        ...(interval.priceCents >= 0
+                                            ? {bottom: `${(1 - positiveBarSpaceRatio) * 100}%`}
+                                            : {top: `${positiveBarSpaceRatio * 100}%`})}">
+                            <div v-if="rating(interval) === 'spike'" class="icon">
+                                <svg class="icon"><use href="#icon-warning"></use></svg>
+                            </div>
+                            <price class="price" :interval="interval"
+                                   v-if="i === 0 || significantPriceChangeIntervals.includes(i)"></price>
+                        </div>
+                    </div>
+                    <div class="timeContainer">
+                        <div class="time">
+                            <time-display v-if="showTime(interval)" :time="interval.startDateTimeLocal"></time-display>
+                        </div>
+                    </div>
+                </div>
+            </transition-group>
+
+            <section id="legend">
+                <span><i class="swatch green"></i><b>Green</b> use freely</span>
+                <span><i class="swatch amber"></i><b>Amber</b> go easy</span>
+                <span><i class="swatch red"></i><b>Red</b> avoid big loads</span>
+                <span><i class="swatch spike"></i><b>Spike</b> switch off</span>
+            </section>
+        </main>
+    </div>
+</script>
+
+<!-- Bundled locally so the tablet doesn't depend on a CDN -->
+<script src="vue-2.7.16.min.js"></script>
+<script src="luxon-1.28.1.min.js"></script>
+<script src="lodash-4.17.23.min.js"></script>
+
+<script src="app.js"></script>
+
+</body>
+</html>

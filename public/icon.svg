@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+    <!-- Traffic light, kept inside the central 80% so it survives maskable-icon cropping -->
+    <rect width="512" height="512" fill="#000000"/>
+    <rect x="186" y="96" width="140" height="320" rx="40" fill="#2a2a2a"/>
+    <circle cx="256" cy="161" r="44" fill="#d41414"/>
+    <circle cx="256" cy="256" r="44" fill="#f0a500"/>
+    <circle cx="256" cy="351" r="44" fill="#12a33a"/>
+</svg>

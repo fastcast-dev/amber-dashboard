@@ -1,0 +1,32 @@
+# Cluster-admin owned: CI can't apply this (the github-deployer Role deliberately has no
+# networkpolicies access). Fold it into k3s-deploys' ansible/roles/demo_apps/templates/public-netpol.yaml.j2
+# or apply it by hand:  kubectl apply -f deploy/cluster/networkpolicy.yaml
+#
+# Needed once the `public` namespace default-deny policies are switched back on
+# (demo_apps_manage_public_netpol: true). amber-dashboard's nginx has to reach api.amber.com.au:443 to
+# proxy prices; everything else stays blocked. The existing allow-ingress-from-traefik and
+# allow-egress-dns policies cover the rest.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-amber-dashboard
+  namespace: public
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: amber-dashboard
+  policyTypes:
+    - Egress
+  egress:
+    # HTTPS to the internet only (api.amber.com.au is CloudFront, so no stable IPs to pin);
+    # cluster and LAN ranges stay blocked.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

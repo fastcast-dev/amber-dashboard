@@ -1,0 +1,15 @@
+# Same contract as the other apps in `public`: the Service exposes 80 and maps to the container's
+# unprivileged 8080.
+apiVersion: v1
+kind: Service
+metadata:
+  name: amber-dashboard
+  labels:
+    app.kubernetes.io/name: amber-dashboard
+spec:
+  selector:
+    app.kubernetes.io/name: amber-dashboard
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
