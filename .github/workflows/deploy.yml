@@ -1,5 +1,20 @@
 # Deploys to the dev k3s cluster on every push to main that touches what's deployed, then promotes to
-# prod behind the `prod` environment's protection rules (required reviewers + main-only).
+# prod behind the `prod` environment's protection rules (required reviewer + main-only).
+#
+# Each job runs on the ARC runner scale set inside its own cluster (deployments-dev / deployments-prod:
+# Chainguard actions-runner-k8s-tools, kubectl baked in), so the API server is always
+# https://kubernetes.default.svc and a dev job can only ever reach dev.
+#
+# Hardening:
+#   - top-level `permissions: {}`; jobs request only contents:read
+#   - every action pinned to a full commit SHA (Chainguard hardened mirrors; repo allowlist enforces it)
+#   - checkout with persist-credentials disabled
+#   - deploys only from refs/heads/main (the environments also only allow main)
+#   - each job declares its `environment:` directly, so it gets only that environment's KUBECONFIG
+#     (the prod token is released only after the prod approval); no org or repo-wide secrets
+#   - no ${{ }} expressions inside run: scripts; values reach the shell through env
+#   - the Amber API key is NOT a GitHub secret: it lives only in the in-cluster Secret, which
+#     deploy.sh never reads (it only checks it exists)
 name: Deploy
 
 on:
@@ -10,7 +25,7 @@ on:
       - "nginx/**"
       - "deploy/**"
       - ".github/workflows/deploy.yml"
-      - ".github/workflows/deploy-env.yml"
+      - ".github/actions/k8s-deploy/**"
   workflow_dispatch:
 
 # No default token permissions anywhere; jobs opt in to the minimum they need.
@@ -23,24 +38,60 @@ concurrency:
 
 jobs:
   dev:
-    uses: ./.github/workflows/deploy-env.yml
-    with:
-      environment: dev
-      runner: deployments-dev
+    name: Deploy to dev
+    runs-on: deployments-dev
+    environment: dev
+    timeout-minutes: 15
     permissions:
       contents: read
-    # Pass only the one secret each environment needs (no `secrets: inherit`). An environment secret
-    # named KUBECONFIG on dev/prod overrides this.
-    secrets:
-      KUBECONFIG: ${{ secrets.KUBECONFIG_DEV }}
+    steps:
+      - name: Only deploy from main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [[ "${REF}" != "refs/heads/main" ]]; then
+            echo "::error::Deploys run from refs/heads/main only (got ${REF})"
+            exit 1
+          fi
+
+      - name: Checkout
+        # uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (upstream)
+        uses: chainguard-actions/actions-checkout@1f8e63dffdffd00f53e08b42f3ec278c5dfed4a2 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Deploy
+        uses: ./.github/actions/k8s-deploy
+        with:
+          environment: dev
+          kubeconfig: ${{ secrets.KUBECONFIG }}
 
   prod:
+    name: Deploy to prod
     needs: dev
-    uses: ./.github/workflows/deploy-env.yml
-    with:
-      environment: prod
-      runner: deployments-prod
+    runs-on: deployments-prod
+    environment: prod
+    timeout-minutes: 15
     permissions:
       contents: read
-    secrets:
-      KUBECONFIG: ${{ secrets.KUBECONFIG_PROD }}
+    steps:
+      - name: Only deploy from main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [[ "${REF}" != "refs/heads/main" ]]; then
+            echo "::error::Deploys run from refs/heads/main only (got ${REF})"
+            exit 1
+          fi
+
+      - name: Checkout
+        # uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (upstream)
+        uses: chainguard-actions/actions-checkout@1f8e63dffdffd00f53e08b42f3ec278c5dfed4a2 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Deploy
+        uses: ./.github/actions/k8s-deploy
+        with:
+          environment: prod
+          kubeconfig: ${{ secrets.KUBECONFIG }}

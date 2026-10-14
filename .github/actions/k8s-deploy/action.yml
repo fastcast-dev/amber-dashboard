@@ -1,0 +1,50 @@
+# Repo-local composite action: deploy amber-dashboard to the cluster this runner lives in.
+# The calling job declares `environment:`, which is what makes the environment's KUBECONFIG
+# secret resolvable; it's passed in here as an input (masked like any secret).
+#
+# The kubeconfig is written to RUNNER_TEMP with mode 600, never into the workspace, and removed
+# whether the deploy succeeds or fails.
+name: Deploy to k8s
+description: Configure kubectl from a base64 kubeconfig and run deploy/deploy.sh
+inputs:
+  environment:
+    description: dev or prod
+    required: true
+  kubeconfig:
+    description: base64 kubeconfig for the github-deployer ServiceAccount
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Configure kubeconfig
+      shell: bash
+      env:
+        KUBECONFIG_B64: ${{ inputs.kubeconfig }}
+      run: |
+        set -euo pipefail
+        if [[ -z "${KUBECONFIG_B64}" ]]; then
+          echo "::error::No kubeconfig: set the KUBECONFIG secret on this environment (deploy/set-github-kubeconfig.sh)"
+          exit 1
+        fi
+        umask 077
+        printf '%s' "${KUBECONFIG_B64}" | base64 -d > "${RUNNER_TEMP}/kubeconfig"
+        echo "KUBECONFIG=${RUNNER_TEMP}/kubeconfig" >> "${GITHUB_ENV}"
+
+    - name: Check cluster identity
+      shell: bash
+      run: |
+        set -euo pipefail
+        kubectl version
+        # Expect system:serviceaccount:public:github-deployer
+        kubectl auth whoami
+
+    - name: Deploy
+      shell: bash
+      env:
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: deploy/deploy.sh "${ENVIRONMENT}"
+
+    - name: Remove kubeconfig
+      if: always()
+      shell: bash
+      run: rm -f "${RUNNER_TEMP}/kubeconfig"

@@ -3,7 +3,7 @@
 #
 #   deploy/deploy.sh dev|prod
 #
-# Used by .github/workflows/deploy-env.yml, and can be run by hand with an admin kubeconfig.
+# Used by .github/actions/k8s-deploy (called from deploy.yml), and can be run by hand with an admin kubeconfig.
 # Never reads or prints the Amber API key: the amber-dashboard-api Secret is created by hand
 # in-cluster (see README); this only checks it exists.
 set -euo pipefail
