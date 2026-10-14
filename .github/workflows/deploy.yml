@@ -1,0 +1,46 @@
+# Deploys to the dev k3s cluster on every push to main that touches what's deployed, then promotes to
+# prod behind the `prod` environment's protection rules (required reviewers + main-only).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "public/**"
+      - "nginx/**"
+      - "deploy/**"
+      - ".github/workflows/deploy.yml"
+      - ".github/workflows/deploy-env.yml"
+  workflow_dispatch:
+
+# No default token permissions anywhere; jobs opt in to the minimum they need.
+permissions: {}
+
+# One deploy at a time; queued pushes wait rather than interleave.
+concurrency:
+  group: deploy-amber-dashboard
+  cancel-in-progress: false
+
+jobs:
+  dev:
+    uses: ./.github/workflows/deploy-env.yml
+    with:
+      environment: dev
+      runner: deployments-dev
+    permissions:
+      contents: read
+    # Pass only the one secret each environment needs (no `secrets: inherit`). An environment secret
+    # named KUBECONFIG on dev/prod overrides this.
+    secrets:
+      KUBECONFIG: ${{ secrets.KUBECONFIG_DEV }}
+
+  prod:
+    needs: dev
+    uses: ./.github/workflows/deploy-env.yml
+    with:
+      environment: prod
+      runner: deployments-prod
+    permissions:
+      contents: read
+    secrets:
+      KUBECONFIG: ${{ secrets.KUBECONFIG_PROD }}

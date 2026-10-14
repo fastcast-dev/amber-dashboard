@@ -1,0 +1,24 @@
+# TLS terminates at the edge traefik VM; the cluster ingress serves plain HTTP on the `web`
+# entrypoint (same pattern as the other apps). The host is set per environment in overlays/.
+# The edge router + DNS record for the host live in k3s-deploys (ansible/inventory/traefik.yml).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: amber-dashboard
+  labels:
+    app.kubernetes.io/name: amber-dashboard
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: HOST_SET_BY_OVERLAY
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: amber-dashboard
+                port:
+                  number: 80

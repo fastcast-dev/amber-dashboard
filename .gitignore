@@ -1,2 +1,10 @@
 .idea
 test-data.json
+public/test-data.json
+
+# Amber API key / site id: lives only in the cluster Secret. Never commit it.
+amber.conf
+*.secret
+
+# deploy/deploy.sh scratch build
+deploy/k8s/.build/

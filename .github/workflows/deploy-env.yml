@@ -1,0 +1,93 @@
+# Reusable single-environment deploy. Runs on the ARC runner scale set inside the target cluster
+# (deployments-dev / deployments-prod: Chainguard actions-runner-k8s-tools, kubectl baked in), so the
+# API server is always https://kubernetes.default.svc and a dev job can only ever reach dev.
+#
+# Hardening:
+#   - top-level `permissions: {}`; the job requests only contents:read
+#   - every action pinned to a full commit SHA (Chainguard hardened mirrors)
+#   - checkout with persist-credentials disabled
+#   - deploys only from refs/heads/main (also enforce "main only" on the environments)
+#   - the kubeconfig (github-deployer token, scoped to the `public` namespace) is written to
+#     RUNNER_TEMP with mode 600, never into the workspace, and deleted at the end of the job
+#   - no ${{ }} expressions inside run: scripts; values reach the shell through env
+#   - the Amber API key is NOT a GitHub secret: it lives only in the in-cluster Secret, which
+#     this workflow never reads (deploy.sh only checks it exists)
+name: Deploy environment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment to deploy (dev or prod)
+        required: true
+        type: string
+      runner:
+        description: ARC runner scale set inside the target cluster
+        required: true
+        type: string
+    secrets:
+      KUBECONFIG:
+        description: >-
+          base64 kubeconfig for the github-deployer ServiceAccount of that cluster. An environment
+          secret named KUBECONFIG on the dev/prod environment takes precedence over this (recommended
+          for prod: then the token is only released after the prod approval).
+        required: false
+
+permissions: {}
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ${{ inputs.runner }}
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Only deploy from main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [[ "${REF}" != "refs/heads/main" ]]; then
+            echo "::error::Deploys run from refs/heads/main only (got ${REF})"
+            exit 1
+          fi
+
+      - name: Checkout
+        # uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (upstream)
+        uses: chainguard-actions/actions-checkout@1f8e63dffdffd00f53e08b42f3ec278c5dfed4a2 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Configure kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${KUBECONFIG_B64}" ]]; then
+            echo "::error::No kubeconfig: set KUBECONFIG on the environment, or KUBECONFIG_DEV / KUBECONFIG_PROD for this repo"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "${KUBECONFIG_B64}" | base64 -d > "${RUNNER_TEMP}/kubeconfig"
+          echo "KUBECONFIG=${RUNNER_TEMP}/kubeconfig" >> "${GITHUB_ENV}"
+
+      - name: Check cluster identity
+        run: |
+          set -euo pipefail
+          kubectl version
+          # Expect system:serviceaccount:public:github-deployer
+          kubectl auth whoami
+
+      - name: Deploy
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: deploy/deploy.sh "${ENVIRONMENT}"
+
+      - name: Remove kubeconfig
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/kubeconfig"

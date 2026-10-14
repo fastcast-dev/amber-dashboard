@@ -1,0 +1,13 @@
+# Paste into k3s-deploys ansible/inventory/traefik.yml, under `traefik_routers:` after tomcat-demo-rt,
+# then run the traefik-docker playbook. Cloudflare DNS records are created by that play.
+#
+# Home/LAN only via settings-ipallow (depth 1 = the real client behind Cloudflare): the page proxies
+# prices with the household's Amber API key, so there's no reason for it to be public.
+      - name: amber-dashboard-dev-rt
+        rule: "Host(`amber-dashboard-dev.self-hosted.io`)"
+        service: k3s-dev-svc
+        middlewares: [crowdsec-bouncer, settings-ipallow]
+      - name: amber-dashboard-rt
+        rule: "Host(`amber-dashboard.self-hosted.io`)"
+        service: k3s-prod-svc
+        middlewares: [crowdsec-bouncer, settings-ipallow]

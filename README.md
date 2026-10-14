@@ -7,9 +7,120 @@ The dashboard is intended to be run full time on a tablet, hung on a wall, and s
 
 ## Use
 
-Amber customers can simply [click here to access the dashboard](https://grahamlea.github.io/amber-dashboard/)
+This fork runs on our own k3s clusters (see [Deployment](#deployment)). The Amber API key is held by the
+server, so there's nothing to enter on the tablet: open the URL and it shows prices.
 
-(You'll need an API key, which you can generate here: https://app.amber.com.au/developers/ )
+
+## Reading the dashboard
+
+The banner at the top answers "should I use power right now?" with a traffic light:
+
+| Light     | Amber's rating                         | Meaning                                                         |
+|-----------|----------------------------------------|-----------------------------------------------------------------|
+| **GREEN** | negative, extremely low, very low, low | Cheap. Go ahead with the oven, stove, washing, dryer, charging. |
+| **AMBER** | neutral                                | Average. Everyday use is fine, save big jobs for green.         |
+| **RED**   | high                                   | Expensive. No long oven/stove cooking, dryer or heaters.        |
+| **SPIKE** | spike (or above the spike threshold)   | Very expensive. Switch off everything you can.                  |
+
+The right of the banner shows when green ends, or when the next green period starts.
+In the settings you can optionally override Amber's rating with your own cents thresholds
+("always green at or below", "always red at or above").
+
+
+## Deployment
+
+```
+public/                  the site (flat: one ConfigMap can't hold subdirectories)
+nginx/                   nginx config: static files + the /api/prices proxy to Amber
+deploy/
+  k8s/base, overlays/    Deployment, Service, Ingress (dev/prod hosts); image pinned by digest
+  deploy.sh              what CI runs: builds content-hashed ConfigMaps, applies, waits, prunes
+  create-secret.sh       one-off, by an admin: stores the Amber API key in-cluster
+  cluster/               admin-owned extras CI can't apply (NetworkPolicy)
+.github/workflows/       deploy (dev, then gated prod), validate, digestabot
+Dockerfile               local preview only
+```
+
+The clusters run the stock, digest-pinned Chainguard nginx image
+(`fastcast-dev.self-hosted.io/cgr/nginx:1.31@sha256:…`) with `public/` and `nginx/` mounted from
+ConfigMaps, the same pattern as `chainguard-demos`. No image is built or pushed. Each deploy creates
+ConfigMaps named by a hash of their content, so any change rolls the pod, a bad config never touches
+the running pod, and `kubectl rollout undo` still works.
+
+### How the API key is kept secret
+
+The browser never sees the Amber API key. The page calls `/api/prices` on its own server, and nginx
+forwards that one request to Amber, adding the key and site id from the `amber-dashboard-api`
+Secret (mounted read-only at `/etc/nginx/amber/amber.conf`). Nothing else the key can read (usage
+history, site/NMI details) is reachable through the proxy, and responses are cached for 30 seconds
+and rate-limited, so however many tablets (or strangers) load the page, Amber sees about one call a minute.
+
+The key exists in exactly one place: that Secret. Not in git, not in GitHub secrets, not in the image,
+not on the tablet. Create or rotate it with:
+
+```sh
+deploy/create-secret.sh k3s-dev     # prompts for the key (hidden), finds the site id, restarts the pod
+deploy/create-secret.sh k3s-prod
+```
+
+Until the Secret exists the dashboard deploys fine and shows "no API key set up yet".
+
+### Pipeline
+
+| Workflow | Runs on | What it does |
+|---|---|---|
+| `deploy.yml` → `deploy-env.yml` | push to `main` (deployed paths) | dev on `deployments-dev`, then prod on `deployments-prod` behind the `prod` environment's approval |
+| `validate.yml` | PRs (same-repo only) and `main` | manifests render, every image is digest-pinned, no Amber key committed |
+| `digestabot.yml` | hourly | PR to bump the nginx digest; merging it deploys it |
+
+Hardening: `permissions: {}` at the top level with jobs opting into `contents: read`; every action is
+a Chainguard hardened mirror pinned to a full commit SHA; `persist-credentials: false`; only `main`
+deploys; each environment gets only its own kubeconfig (no `secrets: inherit`); the kubeconfig is
+written to `RUNNER_TEMP` (mode 600) and deleted at the end; no `${{ }}` inside `run:` scripts; fork PRs
+never run on the in-cluster runners.
+
+### One-time setup
+
+1. **Repo location.** The ARC runners are registered to the `fastcast-dev` org, so the repo has to
+   live there (e.g. `fastcast-dev/amber-dashboard`) to use them.
+2. **Environments** `dev` and `prod`. On both, restrict deployment branches to `main`; on `prod`, add
+   required reviewers.
+3. **Cluster credentials.** Recommended: an environment secret `KUBECONFIG` on each environment
+   (base64 kubeconfig for `github-deployer`, built as in k3s-deploys' `docs/github-deploy-credentials.md`),
+   so the prod token is only released after approval. Otherwise the existing org secrets
+   `KUBECONFIG_DEV` / `KUBECONFIG_PROD` are used, if they're visible to this repo.
+4. **digestabot.** Repo variable `CHAINGUARD_IDENTITY`: a Chainguard assumable identity bound to this
+   repo (the chainguard-demos one is bound to that repo).
+5. **k3s-deploys** (admin, not CI):
+   - edge routers + Cloudflare DNS in `ansible/inventory/traefik.yml` for
+     `amber-dashboard-dev.self-hosted.io` → `k3s-dev-svc` and `amber-dashboard.self-hosted.io` →
+     `k3s-prod-svc`, with `crowdsec-bouncer` and **an IP allowlist for home** (the page is read-only,
+     but there's no reason for it to be public)
+   - when the `public` namespace NetworkPolicies are switched back on, add
+     [`deploy/cluster/networkpolicy.yaml`](deploy/cluster/networkpolicy.yaml) (nginx needs HTTPS out to Amber)
+6. **The Secret**: `deploy/create-secret.sh k3s-dev` and `deploy/create-secret.sh k3s-prod`.
+
+### Local preview
+
+```sh
+cp deploy/amber.conf.example amber.conf   # fill in; gitignored
+docker build -t amber-dashboard .
+docker run --rm -p 8080:8080 -v "$PWD/amber.conf:/etc/nginx/amber/amber.conf:ro" amber-dashboard
+```
+
+### Tablet setup
+
+1. Open the dashboard's HTTPS address in Chrome (84 or newer).
+2. Chrome menu > **Install app** (or **Add to Home screen**). The installed app opens full screen,
+   stays full screen when the page reloads, and still loads from cache if the server is briefly down.
+   (Without installing, tap anywhere on the dashboard to go full screen.)
+3. Keep the tablet on its charger. The page keeps the screen awake while it's open; Android
+   **Developer options > Stay awake** is a good backup.
+
+Notes:
+* Alert sounds only work after the page has been tapped once since it loaded (a Chrome rule).
+* The page reloads itself once a day to pick up new versions (except in tap-to-full-screen mode, which a reload would exit).
+* If prices can't be loaded for 5 minutes, a grey bar across the top says they may be out of date.
 
 
 ## Implementation
@@ -17,7 +128,7 @@ Amber customers can simply [click here to access the dashboard](https://grahamle
 The dashboard uses the [Amber API](https://github.com/amberelectric/public-api/discussions), through which Amber customers gain get access their own data.
 
 The app is built as a simple, one-page [Vue.js](https://vuejs.org/) app.
-(See [index.html](index.html))
+(See [public/index.html](public/index.html) and [public/app.js](public/app.js))
 
 
 ## Screenshot

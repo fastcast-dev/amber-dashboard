@@ -1,0 +1,106 @@
+# amber-dashboard: the stock Chainguard nginx image (digest-pinned, bumped by digestabot) serving
+# public/ with nginx/ as its config. Both are mounted from ConfigMaps that deploy/deploy.sh generates
+# with content-hash names, so any content change rolls the pod and a bad config never touches the
+# running one. The Amber API key comes from the amber-dashboard-api Secret, created by hand in-cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: amber-dashboard
+  labels:
+    app.kubernetes.io/name: amber-dashboard
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0 # the old pod keeps serving until the new one is ready
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: amber-dashboard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: amber-dashboard
+    spec:
+      # Nothing in this pod talks to the Kubernetes API: no ServiceAccount token to steal
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532 # lets nginx read the 0440 Secret file
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          # minor stream (1.31.x); digest kept current by digestabot
+          image: fastcast-dev.self-hosted.io/cgr/nginx:1.31@sha256:4d28bb935112fdab6ee87ef7b21eef5f47313e160806316be19262a9228132a5
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 96Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          volumeMounts:
+            - name: site
+              mountPath: /usr/share/nginx/dashboard
+              readOnly: true
+            # Replaces the image's conf.d (its default server block) with ours
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d
+              readOnly: true
+            - name: amber-api
+              mountPath: /etc/nginx/amber
+              readOnly: true
+            # The only writable paths nginx needs with a read-only rootfs: pid file, temp files + price cache
+            - name: run
+              mountPath: /run
+            - name: nginx-tmp
+              mountPath: /var/lib/nginx/tmp
+      volumes:
+        - name: site
+          configMap:
+            name: amber-dashboard-site
+        - name: nginx-conf
+          configMap:
+            name: amber-dashboard-nginx
+        - name: amber-api
+          secret:
+            secretName: amber-dashboard-api
+            defaultMode: 0440
+            items:
+              - key: amber.conf
+                path: amber.conf
+            # Optional so the page still comes up (showing "no API key set up") before the Secret exists
+            optional: true
+        - name: run
+          emptyDir:
+            sizeLimit: 1Mi
+        - name: nginx-tmp
+          emptyDir:
+            sizeLimit: 32Mi

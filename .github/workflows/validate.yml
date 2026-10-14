@@ -1,0 +1,64 @@
+# PR checks: the manifests render, every image is digest-pinned, and no Amber API key has been
+# committed. Needs no secrets and no cluster access.
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    # Self-hosted runners live inside the cluster: never run code from fork PRs on them
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: deployments-dev
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        # uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (upstream)
+        uses: chainguard-actions/actions-checkout@1f8e63dffdffd00f53e08b42f3ec278c5dfed4a2 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Render manifests
+        run: |
+          set -euo pipefail
+          for env in dev prod; do
+            echo "::group::${env}"
+            kubectl kustomize "deploy/k8s/overlays/${env}"
+            echo "::endgroup::"
+          done
+
+      - name: Images are digest-pinned
+        run: |
+          set -euo pipefail
+          unpinned="$(grep -rnE '^[[:space:]]*(-[[:space:]]*)?image:|^FROM ' deploy/ Dockerfile | grep -v '@sha256:[0-9a-f]\{64\}' || true)"
+          if [[ -n "${unpinned}" ]]; then
+            echo "::error::Image references must be tag@sha256:digest (digestabot keeps them current):"
+            echo "${unpinned}"
+            exit 1
+          fi
+
+      - name: No Amber API keys committed
+        run: |
+          set -euo pipefail
+          # Amber keys look like psk_<32 hex>. The example file only has placeholder x's.
+          if git grep -nIE 'psk_[0-9a-fA-F]{16,}' -- . ':!deploy/amber.conf.example'; then
+            echo "::error::Looks like an Amber API key is committed. Revoke it at app.amber.com.au/developers."
+            exit 1
+          fi
+          if git ls-files | grep -E '(^|/)amber\.conf$'; then
+            echo "::error::amber.conf (the Secret's contents) must never be committed"
+            exit 1
+          fi

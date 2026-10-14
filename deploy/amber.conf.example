@@ -1,0 +1,5 @@
+# Template for the amber-dashboard-api Secret (key: amber.conf). NEVER commit a filled-in copy.
+# Mounted read-only at /etc/nginx/amber/amber.conf and included by the /api/prices location.
+#   API key: https://app.amber.com.au/developers   Site id: GET https://api.amber.com.au/v1/sites
+set $amber_site_id "01XXXXXXXXXXXXXXXXXXXXXXXX";
+set $amber_authorization "Bearer psk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
