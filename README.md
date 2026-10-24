@@ -49,11 +49,13 @@ the running pod, and `kubectl rollout undo` still works.
 
 ### How the API key is kept secret
 
-The browser never sees the Amber API key. The page calls `/api/prices` on its own server, and nginx
-forwards that one request to Amber, adding the key and site id from the `amber-dashboard-api`
-Secret (mounted read-only at `/etc/nginx/amber/amber.conf`). Nothing else the key can read (usage
-history, site/NMI details) is reachable through the proxy, and responses are cached for 30 seconds
-and rate-limited, so however many tablets (or strangers) load the page, Amber sees about one call a minute.
+The browser never sees the Amber API key. The page calls `/api/prices` and `/api/usage` on its own
+server, and nginx forwards those to Amber, adding the key and site id from the `amber-dashboard-api`
+Secret (mounted read-only at `/etc/nginx/amber/amber.conf`). `/api/usage` only accepts a single
+calendar month (for the "This month" cost), so anyone who can load the page can see this household's
+metered usage month by month (up to Amber's 90 days back). Nothing else the key can read (site/NMI
+details) is reachable through the proxy. Prices are cached for 30 seconds and usage for 10 minutes,
+all rate-limited, so however many tablets (or strangers) load the page, Amber sees about one call a minute.
 
 The key exists in exactly one place: that Secret. Not in git, not in GitHub secrets, not in the image,
 not on the tablet. Create or rotate it with:
