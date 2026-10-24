@@ -51,8 +51,9 @@ the running pod, and `kubectl rollout undo` still works.
 
 The browser never sees the Amber API key. The page calls `/api/prices` and `/api/usage` on its own
 server, and nginx forwards those to Amber, adding the key and site id from the `amber-dashboard-api`
-Secret (mounted read-only at `/etc/nginx/amber/amber.conf`). `/api/usage` only accepts a single
-calendar month (for the "This month" cost), so anyone who can load the page can see this household's
+Secret (mounted read-only at `/etc/nginx/amber/amber.conf`). `/api/usage` only accepts fixed weeks
+within one calendar month (Amber serves at most 7 days per request; the page adds them up for the
+"Usage cost this month" bar), so anyone who can load the page can see this household's
 metered usage month by month (up to Amber's 90 days back). Nothing else the key can read (site/NMI
 details) is reachable through the proxy. Prices are cached for 30 seconds and usage for 10 minutes,
 all rate-limited, so however many tablets (or strangers) load the page, Amber sees about one call a minute.

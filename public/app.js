@@ -459,20 +459,28 @@ const app = new Vue({
             }
         },
         async loadUsage() {
+            // Amber serves at most 7 days of usage per request, so ask for the month in fixed weeks
+            // (1st-7th, 8th-14th, ...): the server only accepts these, and past weeks stay cached.
             const today = DateTime.now();
-            const url = `api/usage?startDate=${today.startOf("month").toISODate()}&endDate=${today.toISODate()}`;
+            const urls = [];
+            for (let start = today.startOf("month"); start <= today; start = start.plus({days: 7})) {
+                const end = DateTime.min(start.plus({days: 6}), today, today.endOf("month"));
+                urls.push(`api/usage?startDate=${start.toISODate()}&endDate=${end.toISODate()}`);
+            }
             try {
-                const response = await fetch(url, {
-                    headers: {"Accept": "application/json"},
-                    credentials: "same-origin",
-                    cache: "no-store",
-                })
-                if (response.ok) {
-                    this.rawUsage = await response.json();
-                    this.usageLoadedAt = today;
-                } else {
-                    console.log(`Could not load usage: ${response.status}`);
-                }
+                const weeks = await Promise.all(urls.map(async url => {
+                    const response = await fetch(url, {
+                        headers: {"Accept": "application/json"},
+                        credentials: "same-origin",
+                        cache: "no-store",
+                    })
+                    if (!response.ok) {
+                        throw new Error(`Server response: ${response.status} for ${url}`);
+                    }
+                    return response.json();
+                }));
+                this.rawUsage = weeks.flat();
+                this.usageLoadedAt = today;
             } catch (e) {
                 console.log("Could not load usage", e);
             }
