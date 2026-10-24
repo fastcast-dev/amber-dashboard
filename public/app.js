@@ -16,6 +16,15 @@ const STALE_DATA_MINUTES = 5;
 // Metered usage only arrives about a day late, so the month's cost needn't be fetched often
 const USAGE_REFRESH_MINUTES = 60;
 
+// When the sun is up is learnt from the house's own meter: over the last couple of weeks, the share of
+// days each half-hour exported more solar than it imported. Around the sunniest half-hour, the run of
+// half-hours exporting on at least SUN_SHARE of days is "sun" (green, free); the half-hours either side
+// exporting on at least LOW_SUN_SHARE of days are "low sun" (blue).
+const SOLAR_PROFILE_DAYS = 14;
+const SOLAR_PROFILE_MIN_DAYS = 5;
+const SUN_SHARE = 0.5;
+const LOW_SUN_SHARE = 0.25;
+
 // Error codes from the server's /api/prices proxy (nginx/default.conf)
 const SERVER_ERRORS = {
     "not-configured": "The server has no Amber API key set up yet (see README)",
@@ -36,41 +45,45 @@ const DESCRIPTOR_RATINGS = {
     spike: "spike",
 };
 
-const RATING_WORDS = {
-    green: "GREEN",
-    amber: "AMBER",
-    red: "RED",
-    spike: "SPIKE",
-    unknown: "?",
-};
-
-// Plain-English "what should I do right now?" for someone glancing at the wall
+// Plain-English "what should I do right now?" for someone glancing at the wall. The word goes in the light.
 const ADVICE = {
     paid: {
+        word: "FREE",
         headline: "Paid to use power",
         detail: "Run everything you can now: oven, washing, dryer, dishwasher, hot water, charge the car.",
     },
-    superCheap: {
-        headline: "Power almost free",
-        detail: "Run everything you can now: oven, washing, dryer, dishwasher, hot water, charge the car.",
+    sun: {
+        word: "FREE",
+        headline: "Sun's up: power is free",
+        detail: "Do the big jobs now: washing, dryer, dishwasher, oven, hot water, charge the car.",
     },
     green: {
+        word: "GOOD",
         headline: "Good time to use power",
         detail: "Go ahead: oven and stove cooking, washing, dryer, dishwasher, heating or cooling, charging.",
     },
+    blue: {
+        word: "OK",
+        headline: "Low sun: small jobs only",
+        detail: "Lights, TV and quick cooking are fine. Save washing, the dryer and long oven cooking for green.",
+    },
     amber: {
+        word: "WAIT",
         headline: "Go easy",
-        detail: "Lights, TV and quick cooking are fine. Save long oven or stove cooking, the dryer and heating for green.",
+        detail: "Lights, TV and cooking dinner are fine. Leave washing, the dryer and the dishwasher for green.",
     },
     red: {
+        word: "AVOID",
         headline: "Expensive: avoid big loads",
         detail: "No long oven or stove cooking, dryer, or heaters. Wait for green if you can.",
     },
     spike: {
+        word: "OFF",
         headline: "Price spike: switch off",
         detail: "Very expensive right now. Turn off everything you can (oven, stove, dryer, heaters, aircon) until it passes.",
     },
     unknown: {
+        word: "?",
         headline: "Price unknown",
         detail: "Waiting for prices from Amber.",
     },
@@ -322,13 +335,13 @@ const app = new Vue({
             return this.rating(this.currentGeneralInterval);
         },
         ratingWord() {
-            return RATING_WORDS[this.currentRating];
+            return this.advice.word;
         },
         advice() {
             const interval = this.currentGeneralInterval;
             if (interval && this.currentRating === "green") {
                 if (interval.priceCents < 0) return ADVICE.paid;
-                if (this.isSuperCheap(interval)) return ADVICE.superCheap;
+                if (this.sunPeriod(interval) === "sun") return ADVICE.sun;
             }
             return ADVICE[this.currentRating];
         },
@@ -338,13 +351,14 @@ const app = new Vue({
             const isGreen = this.currentRating === "green";
             const change = this.upcomingIntervals.find(i => (this.rating(i) === "green") !== isGreen);
             const hours = Math.round(this.hoursForecastToShow);
+            const green = this.solarSlots ? "Free" : "Green";
             if (!change) {
                 return isGreen
-                    ? {label: "Green for", text: `${hours}+ hours`}
-                    : {label: "Next green", text: `Not in next ${hours} h`};
+                    ? {label: `${green} for`, text: `${hours}+ hours`}
+                    : {label: `Next ${green.toLowerCase()}`, text: `Not in next ${hours} h`};
             }
             return {
-                label: isGreen ? "Green until" : "Next green",
+                label: isGreen ? `${green} until` : `${green} from`,
                 time: change.startDateTimeLocal,
                 sub: this.formatDurationFromNow(change.startDateTimeLocal),
             };
@@ -352,13 +366,43 @@ const app = new Vue({
         monthCost() {
             // Month to date, as metered: every channel's cost (cents, incl. GST), so feed-in credits
             // net off. Excludes daily supply charges and the Amber membership fee.
-            if (!this.rawUsage?.length) return null;
-            const cents = _.sumBy(this.rawUsage, "cost");
-            const lastDate = _.maxBy(this.rawUsage, "date").date;
+            const monthStart = DateTime.now().startOf("month").toISODate();
+            const usage = this.rawUsage?.filter(({date}) => date >= monthStart);
+            if (!usage?.length) return null;
+            const cents = _.sumBy(usage, "cost");
+            const lastDate = _.maxBy(usage, "date").date;
             return {
                 text: dollarFormat.format(cents / 100),
                 upTo: DateTime.fromISO(lastDate).toFormat("d LLL"),
             };
+        },
+        solarSlots() {
+            // For each half-hour of the day (local time): "sun", "lowSun" or null. Null overall until
+            // there's enough meter data, or if the panels rarely cover the house (e.g. deep winter).
+            if (!this.rawUsage?.length) return null;
+            const since = DateTime.now().minus({days: SOLAR_PROFILE_DAYS}).toISODate();
+            const net = {};   // "date|slot" -> kWh exported minus kWh imported
+            for (const {date, startTime, channelType, kwh} of this.rawUsage) {
+                if (date < since || channelType === "controlledLoad") continue;
+                const start = DateTime.fromISO(startTime).toLocal();
+                const key = `${start.toISODate()}|${start.hour * 2 + Math.floor(start.minute / 30)}`;
+                net[key] = (net[key] || 0) + (channelType === "feedIn" ? 1 : -1) * Math.abs(kwh);
+            }
+            const days = _.uniq(Object.keys(net).map(key => key.split("|")[0]));
+            if (days.length < SOLAR_PROFILE_MIN_DAYS) return null;
+            const share = _.range(48).map(slot => days.filter(day => net[`${day}|${slot}`] > 0).length / days.length);
+            const peak = share.indexOf(_.max(share));
+            if (share[peak] < SUN_SHARE) return null;
+            const spread = minShare => {
+                let [from, to] = [peak, peak];
+                while (from > 0 && share[from - 1] >= minShare) from--;
+                while (to < 47 && share[to + 1] >= minShare) to++;
+                return [from, to];
+            };
+            const [sunFrom, sunTo] = spread(SUN_SHARE);
+            const [lowFrom, lowTo] = spread(LOW_SUN_SHARE);
+            return share.map((_s, slot) =>
+                slot >= sunFrom && slot <= sunTo ? "sun" : slot >= lowFrom && slot <= lowTo ? "lowSun" : null);
         },
         dataIsStale() {
             return !!this.lastLoadedAt
@@ -459,13 +503,19 @@ const app = new Vue({
             }
         },
         async loadUsage() {
-            // Amber serves at most 7 days of usage per request, so ask for the month in fixed weeks
-            // (1st-7th, 8th-14th, ...): the server only accepts these, and past weeks stay cached.
+            // This month (for its cost) and the last couple of weeks (for when the sun's up). Amber serves
+            // at most 7 days of usage per request, so ask in fixed weeks of each month (1st-7th, 8th-14th,
+            // ...): the server only accepts these, and past weeks stay cached.
             const today = DateTime.now();
+            const from = DateTime.min(today.startOf("month"), today.minus({days: SOLAR_PROFILE_DAYS}).startOf("day"));
             const urls = [];
-            for (let start = today.startOf("month"); start <= today; start = start.plus({days: 7})) {
-                const end = DateTime.min(start.plus({days: 6}), today, today.endOf("month"));
-                urls.push(`api/usage?startDate=${start.toISODate()}&endDate=${end.toISODate()}`);
+            for (let month = from.startOf("month"); month <= today; month = month.plus({months: 1})) {
+                for (let start = month; start <= today && start.hasSame(month, "month"); start = start.plus({days: 7})) {
+                    const end = DateTime.min(start.plus({days: 6}), today, month.endOf("month"));
+                    if (end >= from) {
+                        urls.push(`api/usage?startDate=${start.toISODate()}&endDate=${end.toISODate()}`);
+                    }
+                }
             }
             try {
                 const weeks = await Promise.all(urls.map(async url => {
@@ -539,10 +589,14 @@ const app = new Vue({
             return interval.descriptor || 'unknown'
         },
         rating(interval) {
-            // green / amber / red / spike / unknown
+            // spike / red / green / blue / amber / unknown. Expensive always wins; otherwise, once the
+            // sun's hours are known, they decide: sun = green (free), low sun = blue, no sun = amber.
             const descriptor = this.descriptor(interval);
             if (descriptor === "spike") {
                 return "spike"
+            }
+            if (descriptor === "unknown") {
+                return "unknown"
             }
             if (typeof this.greenMaxCents === "number" && interval.priceCents <= this.greenMaxCents) {
                 return "green"
@@ -550,11 +604,21 @@ const app = new Vue({
             if (typeof this.redMinCents === "number" && interval.priceCents >= this.redMinCents) {
                 return "red"
             }
-            return DESCRIPTOR_RATINGS[descriptor] || "unknown"
+            if (interval.priceCents <= 0) {
+                return "green"
+            }
+            if (!this.solarSlots || DESCRIPTOR_RATINGS[descriptor] === "red") {
+                return DESCRIPTOR_RATINGS[descriptor] || "unknown"
+            }
+            return {sun: "green", lowSun: "blue"}[this.sunPeriod(interval)] || "amber"
+        },
+        sunPeriod(interval) {
+            const start = interval.startDateTimeLocal;
+            return this.solarSlots?.[start.hour * 2 + Math.floor(start.minute / 30)] ?? null
         },
         isSuperCheap(interval) {
+            // Amber's "extremely low" can still be well above what solar costs, so only flash when it's free
             return interval.priceCents <= 0
-                || ["negative", "extremelyLow"].includes(interval.descriptor)
         },
         ratingClasses(interval) {
             const rating = this.rating(interval);

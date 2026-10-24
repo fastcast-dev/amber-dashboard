@@ -221,6 +221,7 @@
         }
 
         #advice.green, #advice.superCheap { border-color: #12a33a; }
+        #advice.blue { border-color: #1f7ae0; }
         #advice.amber { border-color: #f0a500; }
         #advice.red, #advice.spike { border-color: #d41414; }
 
@@ -254,6 +255,7 @@
         }
 
         #advice.green #adviceHeadline, #advice.superCheap #adviceHeadline { color: #3ddc5f; }
+        #advice.blue #adviceHeadline { color: #5aaeff; }
         #advice.amber #adviceHeadline { color: #ffbf2e; }
         #advice.red #adviceHeadline, #advice.spike #adviceHeadline { color: #ff4a4a; }
 
@@ -539,10 +541,11 @@
         }
 
         /*
-         * Traffic-light ratings (see rating() in the script):
-         *   green      = cheap, use power freely
-         *   superCheap = green, but almost free / negative (extremely low)
-         *   amber      = average, go easy on big loads
+         * Ratings (see rating() in the script):
+         *   green      = sun's up (solar covers the house), or cheap: use power freely
+         *   superCheap = green, and the price is zero or negative
+         *   blue       = low sun (early morning, evening): small jobs only
+         *   amber      = no sun / average price: go easy on big loads
          *   red        = expensive, avoid big loads
          *   spike      = very expensive, switch off what you can
          */
@@ -560,6 +563,10 @@
 
         .green {
             background: #12a33a;
+        }
+
+        .blue {
+            background: #1f7ae0;
         }
 
         .amber {
@@ -869,10 +876,15 @@
             </transition-group>
 
             <section id="legend">
-                <span><i class="swatch green"></i><b>Green</b> use freely</span>
-                <span><i class="swatch amber"></i><b>Amber</b> go easy</span>
-                <span><i class="swatch red"></i><b>Red</b> avoid big loads</span>
-                <span><i class="swatch spike"></i><b>Spike</b> switch off</span>
+                <span v-if="solarSlots"><i class="swatch green"></i><b>Free</b> sun's up</span>
+                <span v-if="solarSlots"><i class="swatch blue"></i><b>OK</b> low sun, small jobs</span>
+                <span v-if="solarSlots"><i class="swatch amber"></i><b>Wait</b> no sun, go easy</span>
+                <template v-else>
+                    <span><i class="swatch green"></i><b>Good</b> use freely</span>
+                    <span><i class="swatch amber"></i><b>Wait</b> go easy</span>
+                </template>
+                <span><i class="swatch red"></i><b>Avoid</b> expensive</span>
+                <span><i class="swatch spike"></i><b>Off</b> price spike</span>
             </section>
         </main>
     </div>
