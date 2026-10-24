@@ -13,17 +13,26 @@ server, so there's nothing to enter on the tablet: open the URL and it shows pri
 
 ## Reading the dashboard
 
-The banner at the top answers "should I use power right now?" with a traffic light:
+The banner at the top answers "should I use power right now?" with one word and a colour. With solar,
+power you make yourself is close to free (you only give up the small feed-in credit), so the colours
+follow the sun:
 
-| Light     | Amber's rating                         | Meaning                                                         |
-|-----------|----------------------------------------|-----------------------------------------------------------------|
-| **GREEN** | negative, extremely low, very low, low | Cheap. Go ahead with the oven, stove, washing, dryer, charging. |
-| **AMBER** | neutral                                | Average. Everyday use is fine, save big jobs for green.         |
-| **RED**   | high                                   | Expensive. No long oven/stove cooking, dryer or heaters.        |
-| **SPIKE** | spike (or above the spike threshold)   | Very expensive. Switch off everything you can.                  |
+| Light     | Colour | When                                          | Meaning                                                |
+|-----------|--------|-----------------------------------------------|--------------------------------------------------------|
+| **FREE**  | green  | Sun's up: the panels usually cover the house  | Do the big jobs now: washing, dryer, oven, charging.   |
+| **OK**    | blue   | Low sun: early morning, early evening         | Small jobs are fine; save big ones for green.          |
+| **WAIT**  | amber  | No sun: paying for grid power                 | Everyday use is fine; leave big jobs for green.        |
+| **AVOID** | red    | Amber rates the price high (any time of day)  | Expensive. No long oven/stove cooking, dryer, heaters. |
+| **OFF**   | spike  | Price spike (or above the spike threshold)    | Very expensive. Switch off everything you can.         |
 
-The right of the banner shows when green ends, or when the next green period starts.
-In the settings you can optionally override Amber's rating with your own cents thresholds
+"Sun's up" is learnt from the house's own meter, not sunrise times: over the last two weeks, the
+half-hours that exported more than they imported on at least half the days are green, and the
+half-hours either side that did on at least a quarter of days are blue. It follows the seasons and the
+panels on its own, but not today's weather. A negative price is always green. Until there are 5 days of
+meter data it falls back to Amber's own rating (green for low prices, amber for neutral).
+
+The right of the banner shows when free ends, or when the next free period starts.
+In the settings you can optionally override all this with your own cents thresholds
 ("always green at or below", "always red at or above").
 
 
