@@ -13,6 +13,9 @@ const BAR_THRESHOLD_4 = 1700;
 // If the last successful price load is older than this, warn that the screen may be out of date
 const STALE_DATA_MINUTES = 5;
 
+// Metered usage only arrives about a day late, so the month's cost needn't be fetched often
+const USAGE_REFRESH_MINUTES = 60;
+
 // Error codes from the server's /api/prices proxy (nginx/default.conf)
 const SERVER_ERRORS = {
     "not-configured": "The server has no Amber API key set up yet (see README)",
@@ -77,6 +80,7 @@ const decimalFormatTrimmed = new Intl.NumberFormat("en-AU",
     {style: "decimal", minimumFractionDigits: 1, maximumFractionDigits: 1});
 const decimalFormatFull = new Intl.NumberFormat("en-AU",
     {style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2});
+const dollarFormat = new Intl.NumberFormat("en-AU", {style: "currency", currency: "AUD"});
 
 const DateTime = luxon.DateTime;
 
@@ -217,6 +221,8 @@ const app = new Vue({
             lastRequestMinute: null,
             intervalsRequestError: null,
             rawIntervals: null,
+            rawUsage: null,
+            usageLoadedAt: null,
             hoursForecastToShow: 18,
             highPriceLimit: 100,
             greenMaxCents: "",
@@ -343,6 +349,17 @@ const app = new Vue({
                 sub: this.formatDurationFromNow(change.startDateTimeLocal),
             };
         },
+        monthCost() {
+            // Month to date, as metered: every channel's cost (cents, incl. GST), so feed-in credits
+            // net off. Excludes daily supply charges and the Amber membership fee.
+            if (!this.rawUsage?.length) return null;
+            const cents = _.sumBy(this.rawUsage, "cost");
+            const lastDate = _.maxBy(this.rawUsage, "date").date;
+            return {
+                text: dollarFormat.format(cents / 100),
+                upTo: DateTime.fromISO(lastDate).toFormat("d LLL"),
+            };
+        },
         dataIsStale() {
             return !!this.lastLoadedAt
                 && this.dateTimeNow.diff(this.lastLoadedAt, 'minutes').minutes > STALE_DATA_MINUTES;
@@ -441,6 +458,25 @@ const app = new Vue({
                 this.intervalsRequestError = `${e}`;
             }
         },
+        async loadUsage() {
+            const today = DateTime.now();
+            const url = `api/usage?startDate=${today.startOf("month").toISODate()}&endDate=${today.toISODate()}`;
+            try {
+                const response = await fetch(url, {
+                    headers: {"Accept": "application/json"},
+                    credentials: "same-origin",
+                    cache: "no-store",
+                })
+                if (response.ok) {
+                    this.rawUsage = await response.json();
+                    this.usageLoadedAt = today;
+                } else {
+                    console.log(`Could not load usage: ${response.status}`);
+                }
+            } catch (e) {
+                console.log("Could not load usage", e);
+            }
+        },
         async maybeLoadIntervals() {
             this.dateTimeNow = DateTime.now()
             // Daily refresh to pick up a redeployed page. Skipped in browser (tap-to-)full screen, because a
@@ -453,6 +489,12 @@ const app = new Vue({
             if (this.lastRequestMinute === null || (minuteNow !== this.lastRequestMinute && this.dateTimeNow.second > 20)) {
                 this.lastRequestMinute = minuteNow;
                 await this.loadIntervals();
+            }
+            if (!TEST_MODE && (!this.usageLoadedAt
+                || this.dateTimeNow.diff(this.usageLoadedAt, 'minutes').minutes > USAGE_REFRESH_MINUTES
+                || !this.dateTimeNow.hasSame(this.usageLoadedAt, 'month'))) {
+                this.usageLoadedAt = this.dateTimeNow;  // don't retry every second while the request is out
+                this.loadUsage();
             }
             if (TEST_ANIMATION && this.generalIntervals && (new Date().getSeconds() % 5 === 0)) {
                 _(this.generalIntervals).forEach(interval => {

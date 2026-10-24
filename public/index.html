@@ -308,6 +308,11 @@
             color: #eeeeee;
         }
 
+        #monthCost {
+            border-left: 1px solid #555555;
+            padding-left: 1vw;
+        }
+
         #currentAndNext {
             width: 100vw;
             height: 32vh;
@@ -837,6 +842,7 @@
                 <span><i class="swatch amber"></i><b>Amber</b> go easy</span>
                 <span><i class="swatch red"></i><b>Red</b> avoid big loads</span>
                 <span><i class="swatch spike"></i><b>Spike</b> switch off</span>
+                <span v-if="monthCost" id="monthCost">This month <b>{{ monthCost.text }}</b> to {{ monthCost.upTo }}</span>
             </section>
         </main>
     </div>
