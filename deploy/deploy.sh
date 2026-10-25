@@ -34,6 +34,14 @@ cp "${REPO_ROOT}"/public/* "${BUILD}/site/"
 cp "${REPO_ROOT}"/nginx/default.conf "${REPO_ROOT}"/nginx/security-headers.inc \
    "${REPO_ROOT}"/nginx/resolver.inc "${BUILD}/nginx/"
 
+# Cloudflare overrides our no-cache on .js with a 4-hour browser cache, so a browser could pair a new
+# index.html (never cached) with an old app.js, and the page then hangs on "Loading". Point index.html at
+# app.js by content hash, so each deploy's page always loads its own script.
+APP_JS_VERSION="$(sha256sum "${BUILD}/site/app.js" | cut -c1-12)"
+sed -i "s|<script src=\"app.js\"></script>|<script src=\"app.js?v=${APP_JS_VERSION}\"></script>|" "${BUILD}/site/index.html"
+grep -q "app.js?v=${APP_JS_VERSION}" "${BUILD}/site/index.html" \
+  || { echo "::error::Couldn't point index.html at app.js?v=${APP_JS_VERSION}" >&2; exit 1; }
+
 # Restart the pod when the Secret is rotated (nginx only reads it at startup). Only the
 # resourceVersion is printed - never the Secret's data.
 if SECRET_VERSION="$(kubectl -n "${NAMESPACE}" get secret "${SECRET}" -o jsonpath='{.metadata.resourceVersion}' 2>/dev/null)"; then
